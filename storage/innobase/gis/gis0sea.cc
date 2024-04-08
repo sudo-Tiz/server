@@ -278,9 +278,8 @@ rtr_pcur_getnext_from_path(
 				      ulint{RW_S_LATCH}, "");
 			static_assert(ulint{BTR_MODIFY_LEAF} ==
 				      ulint{RW_X_LATCH}, "");
-			rw_latch = (my_latch_mode | 4) == BTR_CONT_MODIFY_TREE
-				? RW_NO_LATCH
-				: rw_lock_type_t(my_latch_mode);
+			rw_latch = rw_lock_type_t(my_latch_mode
+						  & (RW_X_LATCH | RW_S_LATCH));
 		} else {
 			rw_latch = RW_X_LATCH;
 		}
@@ -288,10 +287,6 @@ rtr_pcur_getnext_from_path(
 		if (my_latch_mode == BTR_MODIFY_LEAF) {
 			mtr->rollback_to_savepoint(1);
 		}
-
-		ut_ad((my_latch_mode | 4) == BTR_CONT_MODIFY_TREE
-		      || !page_is_leaf(btr_cur_get_page(btr_cur))
-		      || !btr_cur->page_cur.block->page.lock.have_any());
 
 		const auto block_savepoint = mtr->get_savepoint();
 		block = buf_page_get_gen(
@@ -422,16 +417,10 @@ rtr_pcur_getnext_from_path(
 					mode, trx->lock.lock_heap);
 			}
 
-			if (rw_latch == RW_NO_LATCH) {
-				block->page.lock.s_lock();
-			}
+			ut_ad(rw_latch == RW_S_LATCH);
 
 			lock_prdt_lock(block, &prdt, index, LOCK_S,
 				       LOCK_PREDICATE, btr_cur->rtr_info->thr);
-
-			if (rw_latch == RW_NO_LATCH) {
-				block->page.lock.s_unlock();
-			}
 		}
 
 		if (found) {
@@ -441,7 +430,10 @@ rtr_pcur_getnext_from_path(
 
 				if (my_latch_mode == BTR_MODIFY_TREE
 				    && level == 0) {
-					ut_ad(rw_latch == RW_NO_LATCH);
+					ut_ad(rw_latch == RW_X_LATCH);
+					block->page.lock.x_unlock();
+					mtr->lock_register(block_savepoint,
+							   MTR_MEMO_BUF_FIX);
 
 					rtr_latch_leaves(
 						block_savepoint,
