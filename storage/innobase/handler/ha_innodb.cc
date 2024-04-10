@@ -15741,6 +15741,26 @@ ha_innobase::extra(
 		break;
 	case HA_EXTRA_END_ALTER_COPY:
 		trx = check_trx_exists(ha_thd());
+		if (m_prebuilt->table->skip_alter_undo) {
+			if (dberr_t err= trx->bulk_insert_apply()) {
+				m_prebuilt->table->skip_alter_undo = 0;
+				return convert_error_code_to_mysql(
+					 err,
+					 m_prebuilt->table->flags,
+					 trx->mysql_thd);
+			}
+
+			trx->end_bulk_insert(*m_prebuilt->table);
+			trx->bulk_insert = false;
+			/* During copy alter operation, InnoDB
+			updates the stats only for non-persistent
+			tables. */
+			if (!dict_stats_is_persistent_enabled(
+					m_prebuilt->table)) {
+				dict_stats_update_if_needed(
+					m_prebuilt->table, *trx);
+			}
+		}
 		m_prebuilt->table->skip_alter_undo = 0;
 		if (!m_prebuilt->table->is_temporary()
 		    && !high_level_read_only) {
