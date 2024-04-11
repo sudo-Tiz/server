@@ -56,7 +56,8 @@ On FreeBSD, the limit is close to the Linux one, INT_MAX.
 On Microsoft Windows, the limit is UINT_MAX (4 GiB - 1).
 
 On other systems, the limit typically is up to SSIZE_T_MAX. */
-static constexpr unsigned os_file_request_size_max= 0x7ffff000;
+static constexpr unsigned os_file_request_size_max = 65536;
+//static constexpr unsigned os_file_request_size_max= 0x7ffff000;
 
 extern bool	os_has_said_disk_full;
 

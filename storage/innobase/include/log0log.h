@@ -133,7 +133,7 @@ public:
 struct log_t
 {
   /** The maximum buf_size */
-  static constexpr unsigned buf_size_max= os_file_request_size_max;
+  static constexpr unsigned buf_size_max= 0x7ffff000;
 
   /** The original (not version-tagged) InnoDB redo log format */
   static constexpr uint32_t FORMAT_3_23= 0;
