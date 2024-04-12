@@ -1061,6 +1061,16 @@ Description: Snappy compression support in the server and storage engines
  Note that these affect InnoDB and Mroonga only;
  RocksDB still uses the compression algorithms from its own library
 
+Package: mariadb-plugin-provider-pmem
+Architecture: any
+Depends: mariadb-server,
+         ${misc:Depends},
+         ${shlibs:Depends}
+Description: Persistent memory support in the server and storage engines
+ using the libpmem
+ .
+ Plugin provides persistent memory support via libpmem
+
 Package: mariadb-test
 Architecture: any
 Depends: mariadb-client (= ${binary:Version}),

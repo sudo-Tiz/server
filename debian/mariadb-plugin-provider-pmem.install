@@ -1,0 +1,2 @@
+etc/mysql/mariadb.conf.d/provider_pmem.cnf
+usr/lib/mysql/plugin/provider_pmem.so

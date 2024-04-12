@@ -1,0 +1,3 @@
+[server]
+plugin_load_add=provider_pmem
+provider_pmem=force_plus_permanent
