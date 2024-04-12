@@ -613,6 +613,15 @@ Sql_mode_dependency Item_args::value_depends_on_sql_mode_bit_or() const
 }
 
 
+Sql_mode_dependency Item_args::value_depends_on_session_sys_var_or() const
+{
+  Sql_mode_dependency res;
+  for (uint i= 0; i < arg_count; i++)
+    res|= args[i]->value_depends_on_session_sys_var();
+  return res;
+}
+
+
 /**
   See comments in Item_cond::split_sum_func()
 */

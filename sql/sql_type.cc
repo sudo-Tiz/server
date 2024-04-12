@@ -68,6 +68,9 @@ Named_type_handler<Type_handler_time2> type_handler_time2("time");
 Named_type_handler<Type_handler_newdate> type_handler_newdate("date");
 Named_type_handler<Type_handler_datetime2> type_handler_datetime2("datetime");
 
+Named_type_handler<Type_handler_timestamp2_at_tz>
+  type_handler_timestamp2_at_tz("timestamp with time zone");
+
 Named_type_handler<Type_handler_enum> type_handler_enum("enum");
 Named_type_handler<Type_handler_set> type_handler_set("set");
 
@@ -432,6 +435,29 @@ bool Timestamp_or_zero_datetime::to_TIME(THD *thd, MYSQL_TIME *to,
     return false;
   }
   return Timestamp::to_TIME(thd, to, fuzzydate);
+}
+
+// QQ: is it really used???
+bool Timestamp_or_zero_datetime::to_TIME(const Time_zone *tz, MYSQL_TIME *to,
+                                         date_mode_t fuzzydate) const
+{
+  if (m_is_zero_datetime)
+  {
+    set_zero_time(to, MYSQL_TIMESTAMP_DATETIME);
+    return false;
+  }
+  if (tv_sec == 0 && tv_usec == 0) // QQ: is it really needed??
+  {
+    if (fuzzydate & TIME_NO_ZERO_DATE)
+      return true;
+    set_zero_time(to, MYSQL_TIMESTAMP_DATETIME);
+  }
+  else
+  {
+    tz->gmt_sec_to_TIME(to, tv_sec);
+    to->second_part= tv_usec;
+  }
+  return false;
 }
 
 
@@ -4338,6 +4364,21 @@ int Type_handler_timestamp_common::Item_save_in_field(Item *item,
   if (tmp.is_null())
     return set_field_to_null_with_conversions(field, no_conversions);
   return tmp.save_in_field(field, item->decimals);
+}
+
+
+int Type_handler_timestamp2_at_tz::Item_save_in_field(Item *item,
+                                                      Field *field,
+                                                      bool no_conversions)
+                                                      const
+{
+  const Type_handler *th= field->type_handler();
+  return
+    dynamic_cast<const Type_handler_timestamp_common*>(th) ?
+    Type_handler_timestamp2::Item_save_in_field(item, field, no_conversions) :
+    dynamic_cast<const Type_handler_string_result*>(th) ?
+    item->save_str_in_field(field, no_conversions) :
+    item->save_date_in_field(field, no_conversions);
 }
 
 
@@ -9511,6 +9552,37 @@ bool Type_handler::can_return_extract_source(interval_type int_type) const
 {
   return type_collection() == &type_collection_std;
 }
+
+
+Session_sys_var
+Type_handler::type_conversion_dependency_from(const Type_handler *from) const
+{
+  return from->is_timestamp_type() ? SESSION_SYS_VAR_TIME_ZONE :
+                                     SESSION_SYS_VAR_NONE;
+}
+
+
+Session_sys_var
+Type_handler_timestamp_common::type_conversion_dependency_from(
+                                 const Type_handler *from) const
+{
+  if (from->is_timestamp_type())
+    return SESSION_SYS_VAR_NONE;
+  return from->is_timestamp_type() ? SESSION_SYS_VAR_NONE :
+                                     SESSION_SYS_VAR_TIME_ZONE;
+}
+
+
+Session_sys_var
+Type_handler_timestamp2_at_tz::type_conversion_dependency_from(
+                                 const Type_handler *from) const
+{
+  if (from->is_timestamp_type())
+    return SESSION_SYS_VAR_NONE;
+  return from->is_timestamp_type() ? SESSION_SYS_VAR_NONE :
+                                     SESSION_SYS_VAR_TIME_ZONE;
+}
+
 
 /***************************************************************************/
 

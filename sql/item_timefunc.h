@@ -916,6 +916,72 @@ class Item_func_convert_tz :public Item_datetimefunc
 };
 
 
+class Item_func_at_tz: public Item_func
+{
+  const Time_zone *m_tz;
+public:
+  Item_func_at_tz(THD *thd, Item *a, const Time_zone *tz)
+   :Item_func(thd, a), m_tz(tz)
+  { }
+  const Type_handler *type_handler() const override
+  { return &type_handler_timestamp2_at_tz; }
+  static Item_func_at_tz *make(THD *thd, Item *item, const LEX_CSTRING & tz);
+  const char *func_name() const override { return "AT TIME ZONE"; }
+  bool check_arguments() const override;
+  void print(String *str, enum_query_type query_type) override;
+  // Hmm, which value?? It @@time_zone is used depending
+  // on which val_xxx() method we call.
+  Sql_mode_dependency value_depends_on_session_sys_var() const override
+  {
+    /*
+      The value does not depend on SESSION_VAR_TIME_ZONE if the
+      argument is of a TIMESTAMP data type.
+      TODO: cleanup here using Type_handler methods.
+      Perhaps we don't need even to override.
+    */
+    return args[0]->value_depends_on_session_sys_var().soft_to_hard() |
+           Sql_mode_dependency(args[0]->type_handler()->is_timestamp_type() ?
+                               0 : SESSION_SYS_VAR_TIME_ZONE, 0);
+  }
+  bool eq(const Item *item, bool binary_cmp) const override
+  {
+    return Item_func::eq(item, binary_cmp) &&
+             m_tz == static_cast<const Item_func_at_tz*>(item)->m_tz;
+  }
+  enum precedence precedence() const override { return COLLATE_PRECEDENCE; }
+  Item_field *field_for_view_update() override
+  {
+    return args[0]->field_for_view_update();
+  }
+  bool need_parentheses_in_default() override { return true; }
+  bool fix_length_and_dec() override;
+  longlong val_int() override
+  {
+    return to_datetime(current_thd).to_longlong();
+  }
+  double val_real() override
+  {
+    return to_datetime(current_thd).to_double();
+  }
+  my_decimal *val_decimal(my_decimal *to) override
+  {
+    return to_datetime(current_thd).to_decimal(to);
+  }
+  Datetime to_datetime(THD *thd);
+  bool val_native(THD *thd, Native *to) override;
+  String *val_str(String *to) override;
+  bool get_date(THD *thd, MYSQL_TIME *ltime, date_mode_t fuzzydate) override;
+  Extract_source extract_source(THD *thd, date_mode_t fuzzydate) override
+  {
+    // TODO: do the same thing for COALESCE etc
+    Timestamp_or_zero_datetime_native_null ts(thd, this, false);
+    return ts.to_datetime(m_tz).to_extract_source();
+  }
+  Item *get_copy(THD *thd) override
+  { return get_item_copy<Item_func_at_tz>(thd, this); }
+};
+
+
 class Item_func_sec_to_time :public Item_timefunc
 {
   bool check_arguments() const

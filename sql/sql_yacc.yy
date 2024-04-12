@@ -339,9 +339,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 */
 
 %ifdef MARIADB
-%expect 64
+%expect 66
 %else
-%expect 65
+%expect 67
 %endif
 
 /*
@@ -695,6 +695,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd> XOR
 %token  <kwd> YEAR_MONTH_SYM
 %token  <kwd> ZEROFILL
+%token  <kwd> ZONE_SYM
 
 
 /*
@@ -1194,7 +1195,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 */
 %nonassoc NOT_SYM
 %nonassoc NEG '~' NOT2_SYM BINARY
-%nonassoc COLLATE_SYM
+%nonassoc COLLATE_SYM AT_SYM
 %nonassoc SUBQUERY_AS_EXPR
 
 /*
@@ -10102,6 +10103,11 @@ string_factor_expr:
 
 simple_expr:
           string_factor_expr %prec NEG
+        | primary_expr AT_SYM TIME_SYM ZONE_SYM ident_or_text
+          {
+            if (!($$= Item_func_at_tz::make(thd, $1, $5)))
+              MYSQL_YYABORT;
+          }
         | BINARY simple_expr
           {
             Type_cast_attributes at(&my_charset_bin);
@@ -16064,6 +16070,7 @@ keyword_sp_var_and_label:
         | X509_SYM
         | XML_SYM
         | VIA_SYM
+        | ZONE_SYM
         ;
 
 

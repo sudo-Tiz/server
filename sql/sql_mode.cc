@@ -32,3 +32,28 @@ void Sql_mode_dependency::push_dependency_warnings(THD *thd) const
     }
   }
 }
+
+
+void Sql_mode_dependency::push_dependency_warnings_session_sys_var(THD *thd) const
+{
+  sql_mode_t all= m_hard | m_soft;
+  for (uint i= 0; all ; i++, all >>= 1)
+  {
+    if (all & 1)
+    {
+      const char *name= "Unknown";
+      switch ((sql_mode_t(1) << i)) {
+      case SESSION_SYS_VAR_TIME_ZONE:
+        name= "time_zone";
+        break;
+      case SESSION_SYS_VAR_DIV_PRECISION_INCREMENT:
+        name= "div_precision_increment";
+        break;
+      }
+      push_warning_printf(thd,
+                          Sql_condition::WARN_LEVEL_WARN, ER_UNKNOWN_ERROR,
+                          "Expression depends on the session system variable @@%s",
+                          name);
+    }
+  }
+}

@@ -1227,7 +1227,12 @@ public:
     { }
   };
 
+  explicit Temporal_hybrid(const Temporal &t)
+   :Temporal(t)
+  { }
+
 public:
+
   // Contructors for Item
   Temporal_hybrid(THD *thd, Item *item, date_mode_t fuzzydate);
   Temporal_hybrid(THD *thd, Item *item)
@@ -1356,8 +1361,8 @@ class Extract_source: public Temporal_hybrid
     return time_type == MYSQL_TIMESTAMP_NONE || is_valid_extract_source_slow();
   }
 public:
-  Extract_source(THD *thd, Item *item, date_mode_t mode)
-   :Temporal_hybrid(thd, item, mode)
+  explicit Extract_source(const Temporal_hybrid &th)
+   :Temporal_hybrid(th)
   {
     if (MYSQL_TIME::time_type == MYSQL_TIMESTAMP_TIME)
       time_to_daytime_interval();
@@ -2487,7 +2492,9 @@ public:
   }
   Datetime(my_time_t unix_time, ulong second_part,
            const Time_zone* time_zone);
-
+  Datetime(const struct timeval &tv, const Time_zone *tz)
+   :Datetime((my_time_t) tv.tv_sec, (ulong) tv.tv_usec, tz)
+  { }
   bool is_valid_datetime() const
   {
     /*
@@ -2593,6 +2600,10 @@ public:
     DBUG_ASSERT(type != MYSQL_TIMESTAMP_DATE || hhmmssff_is_zero());
     ltime->time_type= type;
     return false;
+  }
+  Extract_source to_extract_source() const
+  {
+    return Extract_source(Temporal_hybrid(*this));
   }
   longlong to_longlong() const
   {
@@ -2755,6 +2766,7 @@ public:
            tv_usec < other.tv_usec ? -1 :
            tv_usec > other.tv_usec ? +1 : 0;
   }
+
   bool to_TIME(THD *thd, MYSQL_TIME *ltime, date_mode_t fuzzydate) const;
   bool to_native(Native *to, uint decimals) const;
   Datetime to_datetime(THD *thd) const
@@ -2837,6 +2849,8 @@ public:
     return Timestamp::cmp(other);
   }
   bool to_TIME(THD *thd, MYSQL_TIME *to, date_mode_t fuzzydate) const;
+  bool to_TIME(const Time_zone *tz, MYSQL_TIME *ltime, date_mode_t fuzzydate)
+                                                                       const;
   /*
     Convert to native format:
     - Real timestamps are encoded in the same way how Field_timestamp2 stores
@@ -2870,6 +2884,12 @@ public:
            Datetime::zero() :
            Datetime(thd, Timestamp(*this).tv());
   }
+  Datetime to_datetime(const Time_zone *time_zone) const
+  {
+    return is_zero_datetime() ?
+           Datetime::zero() :
+           Datetime(Timestamp(*this).tv(), time_zone);
+  }
   bool is_zero_datetime() const
   {
     return length() == 0;
@@ -2896,11 +2916,22 @@ public:
     return is_null() ? Datetime() :
                        Timestamp_or_zero_datetime_native::to_datetime(thd);
   }
+  Datetime to_datetime(const Time_zone *tz) const
+  {
+    return is_null() ? Datetime() :
+                       Timestamp_or_zero_datetime_native::to_datetime(tz);
+  }
   void to_TIME(THD *thd, MYSQL_TIME *to)
   {
     DBUG_ASSERT(!is_null());
     Datetime::Options opt(TIME_CONV_NONE, TIME_FRAC_NONE);
     Timestamp_or_zero_datetime(*this).to_TIME(thd, to, opt);
+  }
+  void to_TIME(const Time_zone *tz, MYSQL_TIME *to)
+  {
+    DBUG_ASSERT(!is_null());
+    Datetime::Options opt(TIME_CONV_NONE, TIME_FRAC_NONE);
+    Timestamp_or_zero_datetime(*this).to_TIME(tz, to, opt);
   }
   bool is_zero_datetime() const
   {
@@ -3884,6 +3915,8 @@ public:
   virtual bool can_return_extract_source(interval_type type) const;
   virtual bool is_bool_type() const { return false; }
   virtual bool is_general_purpose_string_type() const { return false; }
+  virtual Session_sys_var type_conversion_dependency_from(
+                                            const Type_handler *from) const;
   virtual uint Item_time_precision(THD *thd, Item *item) const;
   virtual uint Item_datetime_precision(THD *thd, Item *item) const;
   virtual uint Item_decimal_scale(const Item *item) const;
@@ -6668,6 +6701,8 @@ public:
   {
     return true;
   }
+  Session_sys_var type_conversion_dependency_from(const Type_handler *to)
+                                                    const override;
   void Column_definition_implicit_upgrade(Column_definition *c) const override;
   bool
   Column_definition_attributes_frm_unpack(Column_definition_attributes *attr,
@@ -6803,6 +6838,24 @@ public:
                                    const Bit_addr &bit,
                                    const Column_definition_attributes *attr,
                                    uint32 flags) const override;
+};
+
+
+class Type_handler_timestamp2_at_tz: public Type_handler_timestamp2
+{
+public:
+  protocol_send_type_t protocol_send_type() const override
+  {
+    return PROTOCOL_SEND_STRING;
+  }
+  bool Item_send(Item *item, Protocol *protocol, st_value *buf) const override
+  {
+    return Item_send_str(item, protocol, buf);
+  }
+  Session_sys_var type_conversion_dependency_from(const Type_handler *to)
+                                                    const override;
+  int Item_save_in_field(Item *item, Field *field, bool no_conversions)
+                         const override;
 };
 
 
@@ -7653,6 +7706,9 @@ extern Named_type_handler<Type_handler_datetime>    type_handler_datetime;
 extern Named_type_handler<Type_handler_datetime2>   type_handler_datetime2;
 extern Named_type_handler<Type_handler_timestamp>   type_handler_timestamp;
 extern Named_type_handler<Type_handler_timestamp2>  type_handler_timestamp2;
+
+extern Named_type_handler<Type_handler_timestamp2_at_tz>
+                                               type_handler_timestamp2_at_tz;
 
 extern Type_handler_interval_DDhhmmssff type_handler_interval_DDhhmmssff;
 

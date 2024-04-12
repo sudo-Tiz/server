@@ -1499,6 +1499,20 @@ bool Field::check_vcol_sql_mode_dependency(THD *thd, vcol_init_mode mode) const
       dep.push_dependency_warnings(thd);
       return error;
     }
+    Sql_mode_dependency sys_var_dep_value=
+      vcol_info->expr->value_depends_on_session_sys_var();
+    Session_sys_var sys_var_dep_cnv= type_handler()->
+                                       type_conversion_dependency_from(
+                                         vcol_info->expr->type_handler());
+    Sql_mode_dependency sys_var_dep= sys_var_dep_value |
+                                     Sql_mode_dependency(0, sys_var_dep_cnv);
+    if (sys_var_dep)
+    {
+      bool error= (mode & VCOL_INIT_DEPENDENCY_FAILURE_IS_ERROR) != 0;
+      error_generated_column_function_is_not_allowed(thd, error);
+      sys_var_dep.push_dependency_warnings_session_sys_var(thd);
+      return error;
+    }
   }
   return false;
 }

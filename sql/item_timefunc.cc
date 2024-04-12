@@ -1960,6 +1960,148 @@ bool Item_func_from_unixtime::get_date(THD *thd, MYSQL_TIME *ltime,
 }
 
 
+Item_func_at_tz *
+Item_func_at_tz::make(THD *thd, Item *item, const LEX_CSTRING & tzname)
+{
+  String str(tzname.str, tzname.length, system_charset_info);
+  Time_zone *tz= my_tz_find(thd, &str);
+  if (!tz)
+  {
+    my_error(ER_UNKNOWN_TIME_ZONE, MYF(0), tzname.str);
+    return nullptr;
+  }
+  return new (thd->mem_root) Item_func_at_tz(thd, item, tz);
+}
+
+
+bool Item_func_at_tz::check_arguments() const
+{
+  if (args[0]->check_type_can_return_date(func_name()))
+    return true;
+  const Type_handler *handler= args[0]->type_handler();
+  if (dynamic_cast<const Type_handler_time_common*>(handler) ||
+      dynamic_cast<const Type_handler_date_common*>(handler))
+  {
+    my_error(ER_ILLEGAL_PARAMETER_DATA_TYPE_FOR_OPERATION, MYF(0),
+             handler->name().ptr(), func_name());
+    return true;
+  }
+  return false;
+}
+
+
+bool Item_func_at_tz::fix_length_and_dec()
+{
+  fix_attributes_datetime(args[0]->datetime_precision(current_thd));
+  max_length+= 1 + m_tz->get_name()->length();
+  maybe_null= true;
+  return false;
+}
+
+
+void Item_func_at_tz::print(String *str, enum_query_type query_type)
+{
+  args[0]->print_parenthesised(str, query_type, precedence());
+  str->append(STRING_WITH_LEN(" at time zone "));
+  str->append("'");
+  str->append(m_tz->get_name()[0]);
+  str->append("'");
+}
+
+
+bool Item_func_at_tz::val_native(THD *thd, Native *to)
+{
+  /*
+    The SQL standard about:
+      datetime_expr AT TIME ZONE 'TZ'
+    says:
+    a) If the argument is a datetime type with time zone,
+       then the UTC component of the result is just taken the argument.
+    b) If the argument is a datetime type without time zone),
+       then the UTC component of the result is DV-STZD, where:
+       - DV is the UTC component of the argument
+       - STZD is the current default time zone displacement of
+         the SQL-session (which is @@time_zone in MariaDB)
+  */
+  if (args[0]->type_handler()->is_timestamp_type())
+  {
+    /*
+      Although MariaDB TIMESTAMP is neither "TIMESTAMP WITHOUT TIME ZONE",
+      nor "TIMESTAMP WITH TIME ZONE" exactly, it's much closer to the latter
+      than to the former. It can be called "TIMESTAMP WITH LOCAL TIME ZONE".
+      So let's treat it as a "datetime type with time zone" and
+      take the UTC component from the argument as is.
+    */
+    return null_value= args[0]->val_native(thd, to);
+  }
+  /*
+    Treat other argument data types (e.g. DATETIME) as
+    "TIMESTAMP WITHOUT TIME ZONE".
+  */
+  Datetime dt(thd, args[0], Datetime::Options(TIME_NO_ZEROS, thd));
+  if ((null_value= !dt.is_valid_datetime()))
+    return true;
+  uint error_code;
+  my_time_t sec= TIME_to_timestamp(thd, dt.get_mysql_time(), &error_code);
+  return null_value= error_code > 0 ||
+                     Timestamp(sec, dt.get_mysql_time()->second_part).
+                       to_native(to, decimals);
+}
+
+
+String *Item_func_at_tz::val_str(String *to)
+{
+  // TODO: all Items of this type should do the same
+  /*
+    The String representation is evaluated in these steps:
+    - get the binary packed time_t value into the variable "ts"
+    - convert the time_t value to Datetime using m_tz as the time zone
+    - print the Datetime to the String "to"
+    - append the time zone infomation to the String "to"
+  */
+  Timestamp_or_zero_datetime_native_null ts(current_thd, this, false);
+  String *str= ts.to_datetime(m_tz).to_string(to, decimals);
+  if (str)
+  {
+    const String *name= m_tz->get_name();
+    str->append(' ');
+    str->append(name->ptr(), name->length(), name->charset());
+  }
+  return str;
+}
+
+
+Datetime Item_func_at_tz::to_datetime(THD *thd)
+{
+  // TODO: all Items of this type should do the same
+  /*
+    Here a TIMESTAMP WITH TIME ZONE to TIMESTAMP WITHOUT TIME ZONE
+    conversion happens. According to the standard, the result is
+    evaluated as SV.UTC + SV.TZ, where:
+    - SV is the TIMESTAMP WITH TIME ZONE value
+    - SV.TZ is the time zone component of SV
+    - SV.UTC is the UTC component of SV, i.e. its 'YYYY-MM-DD hh:mm:ss'
+      representation in its time zone SV.TZ.
+    To get the SQL standard compliant result, we just get the time_t
+    value and convert it to 'YYYY-MM-DD hh:mm:ss' in the current
+    session time zone.
+  */
+  Timestamp_or_zero_datetime_native_null ts(thd, this, false);
+  return (null_value= ts.is_null()) ? Datetime() : ts.to_datetime(m_tz);
+}
+
+
+bool Item_func_at_tz::get_date(THD *thd, MYSQL_TIME *ltime,
+                               date_mode_t fuzzydate)
+{
+  Datetime dt= to_datetime(thd);
+  DBUG_ASSERT(null_value == !dt.is_valid_datetime());
+  if (dt.is_valid_datetime())
+    *ltime= to_datetime(thd).get_mysql_time()[0];
+  return !dt.is_valid_datetime();
+}
+
+
 bool Item_func_convert_tz::get_date(THD *thd, MYSQL_TIME *ltime,
                                     date_mode_t fuzzydate __attribute__((unused)))
 {
@@ -2179,7 +2321,7 @@ longlong Item_extract::val_int()
 {
   DBUG_ASSERT(fixed == 1);
   THD *thd= current_thd;
-  Extract_source dt(thd, args[0], m_date_mode);
+  Extract_source dt= args[0]->extract_source(thd, m_date_mode);
   if ((null_value= !dt.is_valid_extract_source()))
     return 0;
   switch (int_type) {

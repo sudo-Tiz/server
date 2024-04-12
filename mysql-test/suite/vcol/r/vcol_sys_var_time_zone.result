@@ -1,0 +1,358 @@
+#
+# Start of 10.5 tests
+#
+#
+# MDEV-20610 Assertion failed or btr_validate_index(..) in row_upd_sec_index_entry on a time_zone change
+#
+# Without indexed the conversion to TIMESTAMP and from TIMESTAMP
+# works without errors or wanings
+CREATE TABLE t1
+(
+a DATETIME,
+v TIMESTAMP GENERATED ALWAYS AS (a)
+);
+DROP TABLE t1;
+CREATE TABLE t1
+(
+a TIMESTAMP,
+v DATETIME GENERATED ALWAYS AS (a)
+);
+DROP TABLE t1;
+CREATE TABLE t1
+(
+a DECIMAL(32,0),
+v TIMESTAMP GENERATED ALWAYS AS (a)
+);
+DROP TABLE t1;
+CREATE TABLE t1
+(
+a TIMESTAMP,
+v DECIMAL(32,0) GENERATED ALWAYS AS (a)
+);
+DROP TABLE t1;
+#
+# With indexes the conversion is not allowed for:
+# TIMESTAMP -> not TIMESTAMP
+# because it depends on @@time_zone.
+#
+CREATE TABLE t1
+(
+a TIMESTAMP,
+v DATETIME GENERATED ALWAYS AS (a),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE OR REPLACE TABLE t1 (
+a TIMESTAMP,
+v DECIMAL(32,0) GENERATED ALWAYS AS (a),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE OR REPLACE TABLE t1 (
+a TIMESTAMP,
+v VARCHAR(64) GENERATED ALWAYS AS (a),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE OR REPLACE TABLE t1 (
+a TIMESTAMP,
+v DATETIME GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE OR REPLACE TABLE t1 (
+a TIMESTAMP,
+v DECIMAL(32,0) GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE OR REPLACE TABLE t1 (
+a TIMESTAMP,
+v VARCHAR(64) GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+#
+# With indexes the conversion is not allowed for:
+# not TIMESTAMP -> TIMESTAMP
+# because it depends on @@time_zone.
+#
+CREATE OR REPLACE TABLE t1 (
+a DECIMAL(32,0),
+v TIMESTAMP GENERATED ALWAYS AS (a),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE TABLE t1
+(
+a DATETIME,
+v TIMESTAMP GENERATED ALWAYS AS (a),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+SHOW WARNINGS;
+Level	Code	Message
+Error	1901	Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+Warning	1105	Expression depends on the session system variable @@time_zone
+CREATE TABLE t1
+(
+a VARCHAR(64),
+v TIMESTAMP GENERATED ALWAYS AS (a),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+SHOW WARNINGS;
+Level	Code	Message
+Error	1901	Function or expression '`a`' cannot be used in the GENERATED ALWAYS AS clause of `v`
+Warning	1105	Expression depends on the @@sql_mode value TIME_ROUND_FRACTIONAL
+CREATE OR REPLACE TABLE t1 (
+a DECIMAL(32,0),
+v TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+CREATE TABLE t1
+(
+a DATETIME,
+v TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+SHOW WARNINGS;
+Level	Code	Message
+Error	1901	Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+Warning	1105	Expression depends on the session system variable @@time_zone
+CREATE TABLE t1
+(
+a VARCHAR(64),
+v TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+KEY(v)
+);
+ERROR HY000: Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+SHOW WARNINGS;
+Level	Code	Message
+Error	1901	Function or expression '`a` at time zone '+04:00'' cannot be used in the GENERATED ALWAYS AS clause of `v`
+Warning	1105	Expression depends on the @@sql_mode value TIME_ROUND_FRACTIONAL
+#
+# LEFT(ts AT TIME ZONE ..) can remove dependency on @@time_zone
+#
+SET time_zone='+04:00';
+CREATE TABLE t1
+(
+a TIMESTAMP,
+v_________at_p0400 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+v_left_19_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (LEFT(a AT TIME ZONE '+04:00',19))
+);
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `v_________at_p0400` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+04:00') VIRTUAL,
+  `v_left_19_at_p0400` varchar(32) GENERATED ALWAYS AS (left(`a` at time zone '+04:00',19)) VIRTUAL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+INSERT INTO t1 (a) VALUES ('2001-01-01 00:00:00');
+SET time_zone='+04:00';
+SELECT * FROM t1;
+a	2001-01-01 00:00:00
+v_________at_p0400	2001-01-01 00:00:00 +04:00
+v_left_19_at_p0400	2001-01-01 00:00:00
+SET time_zone='+03:00';
+SELECT * FROM t1;
+a	2000-12-31 23:00:00
+v_________at_p0400	2001-01-01 00:00:00 +04:00
+v_left_19_at_p0400	2001-01-01 00:00:00
+SET time_zone='+05:00';
+SELECT * FROM t1;
+a	2001-01-01 01:00:00
+v_________at_p0400	2001-01-01 00:00:00 +04:00
+v_left_19_at_p0400	2001-01-01 00:00:00
+DROP TABLE t1;
+SET time_zone=DEFAULT;
+#
+# EXTRACT(... FROM ts AT TIME ZONE ..) can remove dependency on @@time_zone
+#
+SET time_zone='+04:00';
+CREATE TABLE t1
+(
+a TIMESTAMP,
+v___________a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+v_e_year____a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(YEAR FROM a AT TIME ZONE '+04:00')),
+v_e_month___a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(MONTH FROM a AT TIME ZONE '+04:00')),
+v_e_day_____a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(DAY FROM a AT TIME ZONE '+04:00')),
+v_e_hour____a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(HOUR FROM a AT TIME ZONE '+04:00')),
+v_e_minute__a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(MINUTE FROM a AT TIME ZONE '+04:00')),
+v_e_second__a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(SECOND FROM a AT TIME ZONE '+04:00')),
+v_e_usecond_a_at_p0400 VARCHAR(32) GENERATED ALWAYS AS (EXTRACT(MICROSECOND FROM a AT TIME ZONE '+04:00'))
+);
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `v___________a_at_p0400` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+04:00') VIRTUAL,
+  `v_e_year____a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(year from `a` at time zone '+04:00')) VIRTUAL,
+  `v_e_month___a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(month from `a` at time zone '+04:00')) VIRTUAL,
+  `v_e_day_____a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(day from `a` at time zone '+04:00')) VIRTUAL,
+  `v_e_hour____a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(hour from `a` at time zone '+04:00')) VIRTUAL,
+  `v_e_minute__a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(minute from `a` at time zone '+04:00')) VIRTUAL,
+  `v_e_second__a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(second from `a` at time zone '+04:00')) VIRTUAL,
+  `v_e_usecond_a_at_p0400` varchar(32) GENERATED ALWAYS AS (extract(microsecond from `a` at time zone '+04:00')) VIRTUAL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+INSERT INTO t1 (a) VALUES ('2001-01-01 00:00:00');
+SET time_zone='+04:00';
+SELECT * FROM t1;
+a	2001-01-01 00:00:00
+v___________a_at_p0400	2001-01-01 00:00:00 +04:00
+v_e_year____a_at_p0400	2001
+v_e_month___a_at_p0400	1
+v_e_day_____a_at_p0400	1
+v_e_hour____a_at_p0400	0
+v_e_minute__a_at_p0400	0
+v_e_second__a_at_p0400	0
+v_e_usecond_a_at_p0400	0
+SET time_zone='+03:00';
+SELECT * FROM t1;
+a	2000-12-31 23:00:00
+v___________a_at_p0400	2001-01-01 00:00:00 +04:00
+v_e_year____a_at_p0400	2001
+v_e_month___a_at_p0400	1
+v_e_day_____a_at_p0400	1
+v_e_hour____a_at_p0400	0
+v_e_minute__a_at_p0400	0
+v_e_second__a_at_p0400	0
+v_e_usecond_a_at_p0400	0
+SET time_zone='+05:00';
+SELECT * FROM t1;
+a	2001-01-01 01:00:00
+v___________a_at_p0400	2001-01-01 00:00:00 +04:00
+v_e_year____a_at_p0400	2001
+v_e_month___a_at_p0400	1
+v_e_day_____a_at_p0400	1
+v_e_hour____a_at_p0400	0
+v_e_minute__a_at_p0400	0
+v_e_second__a_at_p0400	0
+v_e_usecond_a_at_p0400	0
+DROP TABLE t1;
+SET time_zone=DEFAULT;
+#
+# Implicit and explicit CAST(... FROM ts AT TIME ZONE ..) can remove dependency on @@time_zone
+#
+SET time_zone='+04:00';
+CREATE TABLE t1
+(
+a TIMESTAMP,
+v_i_cast_as_td_a_________ DATETIME GENERATED ALWAYS AS (a),
+v_e_cast_as_td_a_________ DATETIME GENERATED ALWAYS AS (CAST(a AS DATETIME)),
+v_i_cast_as_td_a_at_p0400 DATETIME GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+v_e_cast_as_td_a_at_p0400 DATETIME GENERATED ALWAYS AS (CAST(a AT TIME ZONE '+04:00' AS DATETIME))
+);
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `v_i_cast_as_td_a_________` datetime GENERATED ALWAYS AS (`a`) VIRTUAL,
+  `v_e_cast_as_td_a_________` datetime GENERATED ALWAYS AS (cast(`a` as datetime)) VIRTUAL,
+  `v_i_cast_as_td_a_at_p0400` datetime GENERATED ALWAYS AS (`a` at time zone '+04:00') VIRTUAL,
+  `v_e_cast_as_td_a_at_p0400` datetime GENERATED ALWAYS AS (cast(`a` at time zone '+04:00' as datetime)) VIRTUAL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+INSERT INTO t1 (a) VALUES ('2001-01-01 00:00:00');
+SET time_zone='+04:00';
+SELECT * FROM t1;
+a	2001-01-01 00:00:00
+v_i_cast_as_td_a_________	2001-01-01 00:00:00
+v_e_cast_as_td_a_________	2001-01-01 00:00:00
+v_i_cast_as_td_a_at_p0400	2001-01-01 00:00:00
+v_e_cast_as_td_a_at_p0400	2001-01-01 00:00:00
+SET time_zone='+03:00';
+SELECT * FROM t1;
+a	2000-12-31 23:00:00
+v_i_cast_as_td_a_________	2000-12-31 23:00:00
+v_e_cast_as_td_a_________	2000-12-31 23:00:00
+v_i_cast_as_td_a_at_p0400	2001-01-01 00:00:00
+v_e_cast_as_td_a_at_p0400	2001-01-01 00:00:00
+SET time_zone='+05:00';
+SELECT * FROM t1;
+a	2001-01-01 01:00:00
+v_i_cast_as_td_a_________	2001-01-01 01:00:00
+v_e_cast_as_td_a_________	2001-01-01 01:00:00
+v_i_cast_as_td_a_at_p0400	2001-01-01 00:00:00
+v_e_cast_as_td_a_at_p0400	2001-01-01 00:00:00
+DROP TABLE t1;
+SET time_zone=DEFAULT;
+SET time_zone='+04:00';
+CREATE TABLE t1
+(
+a DATETIME,
+col_v_m0400 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '-04:00'),
+col_v_m0300 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '-03:00'),
+col_v_m0200 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '-02:00'),
+col_v_m0100 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '-01:00'),
+col_v__0000 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+00:00'),
+col_v_p0100 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+01:00'),
+col_v_p0200 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+02:00'),
+col_v_p0300 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+03:00'),
+col_v_p0400 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+col_v_p0500 TIMESTAMP GENERATED ALWAYS AS (a AT TIME ZONE '+05:00'),
+con_v_m0400 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '-04:00'),
+con_v_m0300 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '-03:00'),
+con_v_m0200 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '-02:00'),
+con_v_m0100 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '-01:00'),
+con_v__0000 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+00:00'),
+con_v_p0100 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+01:00'),
+con_v_p0200 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+02:00'),
+con_v_p0300 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+03:00'),
+con_v_p0400 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+04:00'),
+con_v_p0500 VARCHAR(32) GENERATED ALWAYS AS (a AT TIME ZONE '+05:00')
+);
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` datetime DEFAULT NULL,
+  `col_v_m0400` timestamp GENERATED ALWAYS AS (`a` at time zone '-04:00') VIRTUAL,
+  `col_v_m0300` timestamp GENERATED ALWAYS AS (`a` at time zone '-03:00') VIRTUAL,
+  `col_v_m0200` timestamp GENERATED ALWAYS AS (`a` at time zone '-02:00') VIRTUAL,
+  `col_v_m0100` timestamp GENERATED ALWAYS AS (`a` at time zone '-01:00') VIRTUAL,
+  `col_v__0000` timestamp GENERATED ALWAYS AS (`a` at time zone '+00:00') VIRTUAL,
+  `col_v_p0100` timestamp GENERATED ALWAYS AS (`a` at time zone '+01:00') VIRTUAL,
+  `col_v_p0200` timestamp GENERATED ALWAYS AS (`a` at time zone '+02:00') VIRTUAL,
+  `col_v_p0300` timestamp GENERATED ALWAYS AS (`a` at time zone '+03:00') VIRTUAL,
+  `col_v_p0400` timestamp GENERATED ALWAYS AS (`a` at time zone '+04:00') VIRTUAL,
+  `col_v_p0500` timestamp GENERATED ALWAYS AS (`a` at time zone '+05:00') VIRTUAL,
+  `con_v_m0400` varchar(32) GENERATED ALWAYS AS (`a` at time zone '-04:00') VIRTUAL,
+  `con_v_m0300` varchar(32) GENERATED ALWAYS AS (`a` at time zone '-03:00') VIRTUAL,
+  `con_v_m0200` varchar(32) GENERATED ALWAYS AS (`a` at time zone '-02:00') VIRTUAL,
+  `con_v_m0100` varchar(32) GENERATED ALWAYS AS (`a` at time zone '-01:00') VIRTUAL,
+  `con_v__0000` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+00:00') VIRTUAL,
+  `con_v_p0100` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+01:00') VIRTUAL,
+  `con_v_p0200` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+02:00') VIRTUAL,
+  `con_v_p0300` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+03:00') VIRTUAL,
+  `con_v_p0400` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+04:00') VIRTUAL,
+  `con_v_p0500` varchar(32) GENERATED ALWAYS AS (`a` at time zone '+05:00') VIRTUAL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+INSERT INTO t1 (a) VALUES ('2001-01-01 00:00:00');
+SELECT * FROM t1;
+a	2001-01-01 00:00:00
+col_v_m0400	2001-01-01 00:00:00
+col_v_m0300	2001-01-01 00:00:00
+col_v_m0200	2001-01-01 00:00:00
+col_v_m0100	2001-01-01 00:00:00
+col_v__0000	2001-01-01 00:00:00
+col_v_p0100	2001-01-01 00:00:00
+col_v_p0200	2001-01-01 00:00:00
+col_v_p0300	2001-01-01 00:00:00
+col_v_p0400	2001-01-01 00:00:00
+col_v_p0500	2001-01-01 00:00:00
+con_v_m0400	2000-12-31 16:00:00 -04:00
+con_v_m0300	2000-12-31 17:00:00 -03:00
+con_v_m0200	2000-12-31 18:00:00 -02:00
+con_v_m0100	2000-12-31 19:00:00 -01:00
+con_v__0000	2000-12-31 20:00:00 +00:00
+con_v_p0100	2000-12-31 21:00:00 +01:00
+con_v_p0200	2000-12-31 22:00:00 +02:00
+con_v_p0300	2000-12-31 23:00:00 +03:00
+con_v_p0400	2001-01-01 00:00:00 +04:00
+con_v_p0500	2001-01-01 01:00:00 +05:00
+DROP TABLE t1;
+SET time_zone=DEFAULT;
+#
+# End of 10.5 tests
+#

@@ -1566,6 +1566,10 @@ public:
   {
     return Sql_mode_dependency();
   }
+  virtual Sql_mode_dependency value_depends_on_session_sys_var() const
+  {
+    return Sql_mode_dependency();
+  }
 
   int save_time_in_field(Field *field, bool no_conversions);
   int save_date_in_field(Field *field, bool no_conversions);
@@ -1825,6 +1829,10 @@ public:
                        List<Item> &fields,
                        Item **ref, uint flags);
   virtual bool get_date(THD *thd, MYSQL_TIME *ltime, date_mode_t fuzzydate)= 0;
+  virtual Extract_source extract_source(THD *thd, date_mode_t fuzzydate)
+  {
+    return Extract_source(Temporal_hybrid(thd, this, fuzzydate));
+  }
   bool get_date_from_int(THD *thd, MYSQL_TIME *ltime, date_mode_t fuzzydate);
   bool get_date_from_real(THD *thd, MYSQL_TIME *ltime, date_mode_t fuzzydate);
   bool get_date_from_string(THD *thd, MYSQL_TIME *ltime, date_mode_t fuzzydate);
@@ -2757,6 +2765,7 @@ public:
   inline uint argument_count() const { return arg_count; }
   inline void remove_arguments() { arg_count=0; }
   Sql_mode_dependency value_depends_on_sql_mode_bit_or() const;
+  Sql_mode_dependency value_depends_on_session_sys_var_or() const;
 };
 
 
@@ -5359,6 +5368,17 @@ public:
   Sql_mode_dependency value_depends_on_sql_mode() const override
   {
     return Item_args::value_depends_on_sql_mode_bit_or().soft_to_hard();
+  }
+  Sql_mode_dependency value_depends_on_session_sys_var() const override
+  {
+    Sql_mode_dependency dep(0, 0);
+    for (uint i= 0; i < arg_count; i++)
+    {
+      dep|= Sql_mode_dependency(0,
+              type_handler()->type_conversion_dependency_from(
+                                                     args[0]->type_handler()));
+    }
+    return Item_args::value_depends_on_session_sys_var_or().soft_to_hard() | dep;
   }
 };
 

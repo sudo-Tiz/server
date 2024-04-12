@@ -156,6 +156,15 @@ public:
     return *this;
   }
   void push_dependency_warnings(THD *thd) const;
+  void push_dependency_warnings_session_sys_var(THD *thd) const;
+};
+
+
+enum Session_sys_var
+{
+  SESSION_SYS_VAR_NONE= 0,
+  SESSION_SYS_VAR_TIME_ZONE= 1 << 0,
+  SESSION_SYS_VAR_DIV_PRECISION_INCREMENT= 1<<1
 };
 
 
