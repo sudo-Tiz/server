@@ -59,6 +59,14 @@ static group_commit_lock flush_lock;
 alignas(CPU_LEVEL1_DCACHE_LINESIZE)
 static group_commit_lock write_lock;
 
+#ifdef HAVE_PMEM
+# include <libpmem.h>
+bool have_pmem() { return pmem_errormsg() != NULL; }
+#else
+bool have_pmem() { return false; }
+#endif
+
+
 /** Redo log system */
 log_t	log_sys;
 
@@ -86,11 +94,7 @@ void log_t::set_capacity()
 	log_sys.max_checkpoint_age = margin;
 }
 
-#ifdef HAVE_PMEM
-void log_t::create_low()
-#else
 bool log_t::create()
-#endif
 {
   ut_ad(this == &log_sys);
   ut_ad(!is_initialised());
@@ -101,35 +105,36 @@ bool log_t::create()
   need_checkpoint.store(true, std::memory_order_relaxed);
   write_lsn= FIRST_LSN;
 
-#ifndef HAVE_PMEM
-  buf= static_cast<byte*>(ut_malloc_dontdump(buf_size, PSI_INSTRUMENT_ME));
-  if (!buf)
+  if (!have_pmem())
   {
-  alloc_fail:
-    sql_print_error("InnoDB: Cannot allocate memory;"
-                    " too large innodb_log_buffer_size?");
-    return false;
-  }
-  flush_buf= static_cast<byte*>(ut_malloc_dontdump(buf_size,
-                                                   PSI_INSTRUMENT_ME));
-  if (!flush_buf)
-  {
-    ut_free_dodump(buf, buf_size);
-    buf= nullptr;
-    goto alloc_fail;
-  }
+    buf= static_cast<byte*>(ut_malloc_dontdump(buf_size, PSI_INSTRUMENT_ME));
+    if (!buf)
+    {
+    alloc_fail:
+      sql_print_error("InnoDB: Cannot allocate memory;"
+		      " too large innodb_log_buffer_size?");
+      return false;
+    }
+    flush_buf= static_cast<byte*>(ut_malloc_dontdump(buf_size,
+						     PSI_INSTRUMENT_ME));
+    if (!flush_buf)
+    {
+      ut_free_dodump(buf, buf_size);
+      buf= nullptr;
+      goto alloc_fail;
+    }
 
-  TRASH_ALLOC(buf, buf_size);
-  TRASH_ALLOC(flush_buf, buf_size);
-  checkpoint_buf= static_cast<byte*>(aligned_malloc(4096, 4096));
-  memset_aligned<4096>(checkpoint_buf, 0, 4096);
-  max_buf_free= buf_size / LOG_BUF_FLUSH_RATIO - LOG_BUF_FLUSH_MARGIN;
-#else
-  ut_ad(!checkpoint_buf);
-  ut_ad(!buf);
-  ut_ad(!flush_buf);
-  max_buf_free= 1;
-#endif
+    TRASH_ALLOC(buf, buf_size);
+    TRASH_ALLOC(flush_buf, buf_size);
+    checkpoint_buf= static_cast<byte*>(aligned_malloc(4096, 4096));
+    memset_aligned<4096>(checkpoint_buf, 0, 4096);
+    max_buf_free= buf_size / LOG_BUF_FLUSH_RATIO - LOG_BUF_FLUSH_MARGIN;
+  } else {
+    ut_ad(!checkpoint_buf);
+    ut_ad(!buf);
+    ut_ad(!flush_buf);
+    max_buf_free= 1;
+  }
 
   latch.SRW_LOCK_INIT(log_latch_key);
 
@@ -143,9 +148,7 @@ bool log_t::create()
   set_buf_free(0);
 
   ut_ad(is_initialised());
-#ifndef HAVE_PMEM
   return true;
-#endif
 }
 
 dberr_t log_file_t::close() noexcept
@@ -178,7 +181,6 @@ void log_file_t::write(os_offset_t offset, span<const byte> buf) noexcept
 }
 
 #ifdef HAVE_PMEM
-# include <libpmem.h>
 
 /** Attempt to memory map a file.
 @param file  log file handle
@@ -225,47 +227,50 @@ void log_t::attach_low(log_file_t file, os_offset_t size)
   file_size= size;
 
 #ifdef HAVE_PMEM
-  ut_ad(!buf);
-  ut_ad(!flush_buf);
-  if (size && !(size_t(size) & 4095) && srv_operation != SRV_OPERATION_BACKUP)
+  if (is_pmem())
   {
-    void *ptr= log_mmap(log.m_file, size);
-    if (ptr != MAP_FAILED)
+    ut_ad(!buf);
+    ut_ad(!flush_buf);
+    if (size && !(size_t(size) & 4095) && srv_operation != SRV_OPERATION_BACKUP)
     {
-      log.close();
-      mprotect(ptr, size_t(size), PROT_READ);
-      buf= static_cast<byte*>(ptr);
-      max_buf_free= size;
+      void *ptr= log_mmap(log.m_file, size);
+      if (ptr != MAP_FAILED)
+      {
+	log.close();
+	mprotect(ptr, size_t(size), PROT_READ);
+	buf= static_cast<byte*>(ptr);
+	max_buf_free= size;
 # if defined __linux__ || defined _WIN32
-      set_block_size(CPU_LEVEL1_DCACHE_LINESIZE);
+	set_block_size(CPU_LEVEL1_DCACHE_LINESIZE);
 # endif
-      log_maybe_unbuffered= true;
-      log_buffered= false;
-      mtr_t::finisher_update();
-      return true;
+	log_maybe_unbuffered= true;
+	log_buffered= false;
+	mtr_t::finisher_update();
+	return true;
+      }
     }
-  }
-  buf= static_cast<byte*>(ut_malloc_dontdump(buf_size, PSI_INSTRUMENT_ME));
-  if (!buf)
-  {
-  alloc_fail:
-    max_buf_free= 0;
-    sql_print_error("InnoDB: Cannot allocate memory;"
-                    " too large innodb_log_buffer_size?");
-    return false;
-  }
-  flush_buf= static_cast<byte*>(ut_malloc_dontdump(buf_size,
-                                                   PSI_INSTRUMENT_ME));
-  if (!flush_buf)
-  {
-    ut_free_dodump(buf, buf_size);
-    buf= nullptr;
-    goto alloc_fail;
-  }
+    buf= static_cast<byte*>(ut_malloc_dontdump(buf_size, PSI_INSTRUMENT_ME));
+    if (!buf)
+    {
+    alloc_fail:
+      max_buf_free= 0;
+      sql_print_error("InnoDB: Cannot allocate memory;"
+		      " too large innodb_log_buffer_size?");
+      return false;
+    }
+    flush_buf= static_cast<byte*>(ut_malloc_dontdump(buf_size,
+						     PSI_INSTRUMENT_ME));
+    if (!flush_buf)
+    {
+      ut_free_dodump(buf, buf_size);
+      buf= nullptr;
+      goto alloc_fail;
+    }
 
-  TRASH_ALLOC(buf, buf_size);
-  TRASH_ALLOC(flush_buf, buf_size);
-  max_buf_free= buf_size / LOG_BUF_FLUSH_RATIO - LOG_BUF_FLUSH_MARGIN;
+    TRASH_ALLOC(buf, buf_size);
+    TRASH_ALLOC(flush_buf, buf_size);
+    max_buf_free= buf_size / LOG_BUF_FLUSH_RATIO - LOG_BUF_FLUSH_MARGIN;
+  }
 #endif
 
 #if defined __linux__ || defined _WIN32
@@ -278,8 +283,11 @@ void log_t::attach_low(log_file_t file, os_offset_t size)
 
   mtr_t::finisher_update();
 #ifdef HAVE_PMEM
-  checkpoint_buf= static_cast<byte*>(aligned_malloc(block_size, block_size));
-  memset_aligned<64>(checkpoint_buf, 0, block_size);
+  if (is_pmem())
+  {
+    checkpoint_buf= static_cast<byte*>(aligned_malloc(block_size, block_size));
+    memset_aligned<64>(checkpoint_buf, 0, block_size);
+  }
   return true;
 #endif
 }
@@ -1291,18 +1299,19 @@ void log_t::close()
   if (!is_initialised()) return;
   close_file();
 
-#ifndef HAVE_PMEM
-  ut_free_dodump(buf, buf_size);
-  buf= nullptr;
-  ut_free_dodump(flush_buf, buf_size);
-  flush_buf= nullptr;
-  aligned_free(checkpoint_buf);
-  checkpoint_buf= nullptr;
-#else
-  ut_ad(!checkpoint_buf);
-  ut_ad(!buf);
-  ut_ad(!flush_buf);
-#endif
+  if (!is_pmem())
+  {
+    ut_free_dodump(buf, buf_size);
+    buf= nullptr;
+    ut_free_dodump(flush_buf, buf_size);
+    flush_buf= nullptr;
+    aligned_free(checkpoint_buf);
+    checkpoint_buf= nullptr;
+  } else {
+    ut_ad(!checkpoint_buf);
+    ut_ad(!buf);
+    ut_ad(!flush_buf);
+  }
 
   latch.destroy();
 

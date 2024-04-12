@@ -372,6 +372,10 @@ public:
   @return whether an error occurred */
   static bool resize_rename() noexcept;
 
+  /** Initialise the redo log subsystem.
+  @return whether the initialisation succeeded */
+  bool create();
+
 #ifdef HAVE_PMEM
   /** @return pointer for writing to resize_buf
   @retval nullptr if no PMEM based resizing is active */
@@ -380,19 +384,10 @@ public:
   inline const byte *resize_buf_end() const noexcept
   { return resize_buf + resize_target; }
 
-  /** Initialise the redo log subsystem. */
-  void create_low();
-  /** Initialise the redo log subsystem.
-  @return whether the initialisation succeeded */
-  bool create() { create_low(); return true; }
-
   /** Attach a log file.
   @return whether the memory allocation succeeded */
   bool attach(log_file_t file, os_offset_t size);
 #else
-  /** Initialise the redo log subsystem.
-  @return whether the initialisation succeeded */
-  bool create();
   /** Attach a log file. */
   void attach_low(log_file_t file, os_offset_t size);
   bool attach(log_file_t file, os_offset_t size)

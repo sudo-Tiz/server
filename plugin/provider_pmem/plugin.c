@@ -21,6 +21,7 @@
 static int init(void* h)
 {
   provider_service_pmem->pmem_persist_ptr= pmem_persist;
+  provider_service_pmem->pmem_errormsg_ptr= pmem_errormsg;
   provider_service_pmem->is_loaded = true;
 
   return 0;

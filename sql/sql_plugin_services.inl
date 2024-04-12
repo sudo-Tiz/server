@@ -336,6 +336,7 @@ struct provider_service_lz4_st *provider_service_lz4= &provider_handler_lz4;
 static struct provider_service_pmem_st provider_handler_pmem=
 {
   DEFINE_pmem_persist([])         DEFINE_warning_function("Persistent memory support", ),
+  DEFINE_pmem_errormsg([]) -> const char* { return NULL; },
 
   false // .is_loaded
 };
