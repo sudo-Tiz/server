@@ -49,6 +49,7 @@
 #include "wsrep_schema.h"
 #endif
 #include "log_event.h"           // MAX_TABLE_MAP_ID
+#include "sql_class.h"
 
 /* For MySQL 5.7 virtual fields */
 #define MYSQL57_GENERATED_FIELD 128
@@ -5848,6 +5849,62 @@ void TABLE::reset_item_list(List<Item> *item_list, uint skip) const
     DBUG_ASSERT(item_field != 0);
     item_field->reset_field(*ptr);
   }
+}
+
+TABLE_LIST::TABLE_LIST(THD *thd,
+                       LEX_CSTRING _db,
+                       bool _fqtn,
+                       LEX_CSTRING _alias_str,
+                       LEX_CSTRING *_alias,
+                       Table_ident *_table,
+                       thr_lock_type _lock_type,
+                       enum_mdl_type _mdl_type,
+                       ulong _table_options,
+                       bool _info_schema,
+                       st_select_lex *_select_lex,
+                       List<Index_hint> *_index_hints_org,
+                       LEX_STRING *_option)
+{
+  auto *ptr= this;
+  ptr->db= _db;
+  ptr->is_fqtn= _fqtn;
+  ptr->alias= _alias_str;
+  ptr->is_alias= _alias ? TRUE : FALSE;
+  if (lower_case_table_names)
+  {
+    if (_table->table.length)
+      _table->table.length= my_casedn_str(files_charset_info,
+                                         (char*) _table->table.str);
+    if (ptr->db.length && ptr->db.str != any_db.str)
+      ptr->db.length= my_casedn_str(files_charset_info, (char*) ptr->db.str);
+  }
+
+  ptr->table_name= _table->table;
+  ptr->lock_type= _lock_type;
+  ptr->mdl_type= _mdl_type;
+  ptr->table_options= _table_options;
+  ptr->updating= MY_TEST(table_options & TL_OPTION_UPDATING);
+  /* TODO: remove TL_OPTION_FORCE_INDEX as it looks like it's not used */
+  ptr->force_index= MY_TEST(table_options & TL_OPTION_FORCE_INDEX);
+  ptr->ignore_leaves= MY_TEST(table_options & TL_OPTION_IGNORE_LEAVES);
+  ptr->sequence=      MY_TEST(table_options & TL_OPTION_SEQUENCE);
+  ptr->derived=	    _table->sel;
+
+  if (!_table->sel && _info_schema)
+  {
+    ST_SCHEMA_TABLE *schema_table;
+    schema_table= find_schema_table(thd, &ptr->table_name);
+    ptr->schema_table_name= ptr->table_name;
+    ptr->schema_table= schema_table;
+  }
+  ptr->select_lex= _select_lex;
+  /*
+    We can't cache internal temporary tables between prepares as the
+    table may be deleted before next exection.
+ */
+  ptr->cacheable_table= !_table->is_derived_table();
+  ptr->index_hints= _index_hints_org;
+  ptr->option= _option ? _option->str : 0;
 }
 
 /*

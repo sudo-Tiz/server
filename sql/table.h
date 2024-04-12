@@ -2175,8 +2175,23 @@ struct TABLE_CHAIN
   void set_end_pos(TABLE_LIST **pos) { end_pos= pos; }
 };
 
+class Table_ident;
 struct TABLE_LIST
 {
+  TABLE_LIST(THD *thd,
+             LEX_CSTRING _db,
+             bool _fqtn,
+             LEX_CSTRING _alias_str,
+             LEX_CSTRING *_alias,
+             Table_ident *_table,
+             thr_lock_type _lock_type,
+             enum_mdl_type _mdl_type,
+             ulong _table_options,
+             bool _info_schema,
+             st_select_lex *_select_lex,
+             List<Index_hint> *_index_hints_org,
+             LEX_STRING *_option);
+
   TABLE_LIST() = default;                          /* Remove gcc warning */
 
   enum prelocking_types
