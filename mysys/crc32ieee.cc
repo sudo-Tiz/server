@@ -26,22 +26,21 @@ static unsigned int my_crc32_zlib(unsigned int crc, const void *data,
   return (unsigned int) crc32(crc, (const Bytef *)data, (unsigned int) len);
 }
 
+typedef unsigned int (*my_crc32_t)(unsigned int, const void *, size_t);
+
 #ifdef HAVE_PCLMUL
-extern "C" int crc32_pclmul_enabled();
-extern "C" unsigned int crc32_pclmul(unsigned int, const void *, size_t);
+extern "C" my_crc32_t crc32_pclmul_enabled();
 #elif defined(__GNUC__) && defined(HAVE_ARMV8_CRC)
 extern "C" int crc32_aarch64_available();
 extern "C" unsigned int crc32_aarch64(unsigned int, const void *, size_t);
 #endif
 
 
-typedef unsigned int (*my_crc32_t)(unsigned int, const void *, size_t);
-
 static my_crc32_t init_crc32()
 {
 #ifdef HAVE_PCLMUL
-  if (crc32_pclmul_enabled())
-    return crc32_pclmul;
+  if (my_crc32_t crc= crc32_pclmul_enabled())
+    return crc;
 #elif defined(__GNUC__) && defined(HAVE_ARMV8_CRC)
   if (crc32_aarch64_available())
     return crc32_aarch64;
