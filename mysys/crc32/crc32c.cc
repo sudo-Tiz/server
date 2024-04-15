@@ -41,8 +41,9 @@ static inline uint32_t DecodeFixed32(const char *ptr)
 #  include <nmmintrin.h>
 #  ifndef __x86_64__
 #  elif __GNUC__ >= 11 || (defined __clang_major__ && __clang_major__ >= 8)
-#   define USE_VPCLMULQDQ \
-  __attribute__((target("avx512f,avx512dq,avx512bw,avx512vl,vpclmulqdq")))
+#   define TARGET_VPCLMULQDQ \
+  "pclmul,avx512f,avx512dq,avx512bw,avx512vl,vpclmulqdq"
+#   define USE_VPCLMULQDQ __attribute__((target(TARGET_VPCLMULQDQ)))
 #   include <immintrin.h>
 #  endif
 # endif
@@ -51,21 +52,18 @@ static inline uint32_t DecodeFixed32(const char *ptr)
 
 
 #ifdef __powerpc64__
-#include "crc32c_ppc.h"
+# include "crc32c_ppc.h"
+# ifdef __linux__
+#  include <sys/auxv.h>
 
-#if __linux__
-#include <sys/auxv.h>
+#  ifndef PPC_FEATURE2_VEC_CRYPTO
+#   define PPC_FEATURE2_VEC_CRYPTO 0x02000000
+#  endif
 
-#ifndef PPC_FEATURE2_VEC_CRYPTO
-#define PPC_FEATURE2_VEC_CRYPTO 0x02000000
-#endif
-
-#ifndef AT_HWCAP2
-#define AT_HWCAP2 26
-#endif
-
-#endif /* __linux__ */
-
+#  ifndef AT_HWCAP2
+#   define AT_HWCAP2 26
+#  endif
+# endif
 #endif
 
 typedef unsigned (*my_crc32_t)(unsigned, const void *, size_t);
