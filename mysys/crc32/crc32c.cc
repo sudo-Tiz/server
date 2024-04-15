@@ -42,7 +42,7 @@ static inline uint32_t DecodeFixed32(const char *ptr)
 #  ifndef __x86_64__
 #  elif __GNUC__ >= 11 || (defined __clang_major__ && __clang_major__ >= 8)
 #   define USE_VPCLMULQDQ \
-  __attribute__((target("avx512bw,avx512vl,avx512f,avx512dq,vpclmulqdq")))
+  __attribute__((target("avx512f,avx512dq,avx512bw,avx512vl,vpclmulqdq")))
 #   include <immintrin.h>
 #  endif
 # endif
@@ -109,7 +109,7 @@ static const crc32_tab crc32c_const= {
   { 0x000000011f91caf6, 0x000000011edc6f41 }
 };
 
-static constexpr int8_t mm_XOR= 0x96;
+static constexpr uint8_t mm_XOR= 0x96;
 
 USE_VPCLMULQDQ
 /** 3-ary exclusive or */
@@ -147,7 +147,11 @@ static inline __m128i load128(__m512i S, const char *buf)
 #define xor512(a, b) _mm512_xor_epi64(a, b)
 #define xor256(a, b) _mm256_xor_epi64(a, b)
 #define xor128(a, b) _mm_xor_epi64(a, b)
+#define and128(a, b) _mm_and_si128(a, b)
 
+#if defined __GNUC__ && !defined __clang_major__
+__attribute__((optimize(2))) /* xor3_*() requires an optimized GCC build */
+#endif
 USE_VPCLMULQDQ ATTRIBUTE_NOINLINE
 static unsigned crc32_avx512(unsigned crc, const char *buf, size_t size,
                              const crc32_tab &tab)
@@ -322,7 +326,7 @@ static unsigned crc32_avx512(unsigned crc, const char *buf, size_t size,
     m0= _mm_slli_si128(crc_out, 8);
     crc_out= _mm_clmulepi64_si128(crc_out, b, 0x01);
     crc_out= xor128(crc_out, m0);
-    m0= crc_out & __m128i{-1LL,~0U};
+    m0= and128(crc_out, _mm_set_epi64x(~0ULL, ~0U));
     crc_out= _mm_srli_si128(crc_out, 12);
     crc_out= _mm_clmulepi64_si128(crc_out, b, 0x10);
     crc_out= xor128(crc_out, m0);
@@ -356,9 +360,9 @@ static unsigned crc32_avx512(unsigned crc, const char *buf, size_t size,
           0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
           0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x5fff, 0x7fff
         };
-        crc_out= _mm_shuffle_epi8(_mm_maskz_loadu_epi8(size_mask[size - 1],
-                                                       buf),
-                                  _mm512_castsi512_si128(S));
+        crc_out=
+          _mm_shuffle_epi8(_mm_maskz_loadu_epi8(size_mask[size - 1], buf),
+                           _mm512_castsi512_si128(S));
         crc_out= xor128(crc_out, _mm512_castsi512_si128(crc_in));
 
         if (size >= 4)
